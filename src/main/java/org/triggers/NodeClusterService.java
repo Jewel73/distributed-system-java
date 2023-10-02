@@ -3,33 +3,22 @@ package org.triggers;
 import org.apache.zookeeper.*;
 import org.apache.zookeeper.data.Stat;
 
-
-import java.io.IOException;
+import java.net.UnknownHostException;
 import java.util.Collections;
 import java.util.List;
 
 
 public class NodeClusterService implements Watcher {
     private static final String PARENT_NODE = "/election";
-    private static final String SERVER_LOCATION = "localhost:2181";
-    private static final Integer SESSION_TIMEOUT = 3000;
     private ZooKeeper zooKeeper;
-    private String currentNode;
+    private String currentNode = "";
+    private ServiceCoordinator serviceCoordinator;
 
-    public static void main(String[] args) throws IOException, InterruptedException, KeeperException {
-        NodeClusterService cluster = new NodeClusterService();
-        cluster.connectZookeper();
-        cluster.candidateNodeCreate();
-        cluster.reElectLeader();
-        cluster.run();
-        System.out.println("disconnecting from zookeeper server");
-        cluster.close();
-
+    NodeClusterService(ZooKeeper zooKeeper, ServiceCoordinator serviceCoordinator){
+        this.zooKeeper = zooKeeper;
+        this.serviceCoordinator = serviceCoordinator;
     }
 
-    public void connectZookeper() throws IOException {
-        zooKeeper = new ZooKeeper(SERVER_LOCATION, SESSION_TIMEOUT, this);
-    }
 
     public void candidateNodeCreate() throws InterruptedException, KeeperException {
         var nodePrefix = PARENT_NODE + "/c_";
@@ -37,18 +26,19 @@ public class NodeClusterService implements Watcher {
         this.currentNode = nodeFullPath.replace(PARENT_NODE+"/", "");
     }
 
-    public void reElectLeader() throws InterruptedException, KeeperException {
+    public void reElectLeader() throws InterruptedException, KeeperException, UnknownHostException {
         Stat predecessorStat = null ;
         String predecessorName = "" ;
         Stat stat = zooKeeper.exists(PARENT_NODE, false);
         if(stat == null) return;
 
-        List<String> chlidrens =  zooKeeper.getChildren(PARENT_NODE, false);
+        List<String> chlidrens =  zooKeeper.getChildren(PARENT_NODE, true);
         Collections.sort(chlidrens);
 
         String leaderNode = chlidrens.get(0);
         if (leaderNode.equals(currentNode)){
             System.out.println("I am the leader Z node : "+currentNode);
+            serviceCoordinator.leaderElectionCoordinator();
             return;
         }else {
             System.out.println("I am not the leader");
@@ -58,41 +48,22 @@ public class NodeClusterService implements Watcher {
         }
         System.out.println("I am watching Z node : "+ predecessorName);
         System.out.println();
+        serviceCoordinator.workerCoordinator();
     }
 
-    public void run() throws InterruptedException {
-        synchronized (zooKeeper){
-            zooKeeper.wait();
-        }
-    }
 
-    public void close() throws InterruptedException {
-        synchronized (zooKeeper){
-            zooKeeper.close();
-        }
-    }
 
 
     @Override
     public void process(WatchedEvent watchedEvent) {
         switch (watchedEvent.getType()){
-            case None:
-                if ((watchedEvent.getState() == Event.KeeperState.SyncConnected)){
-                    System.out.println("Successfully connected to the zookeeper");
-                }else {
-                    synchronized (zooKeeper){
-                        System.out.println("disconnected from zookeeper");
-                        zooKeeper.notifyAll();
-                    }
-                }
-                break;
 
             case NodeDeleted:
                 try {
                     reElectLeader();
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
-                } catch (KeeperException e) {
+                } catch (KeeperException | UnknownHostException e) {
                     throw new RuntimeException(e);
                 }
 

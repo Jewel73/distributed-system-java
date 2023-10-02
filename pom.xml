@@ -31,7 +31,7 @@
       <configuration>
         <archive>
           <manifest>
-            <mainClass>org.triggers.NodeClusterService</mainClass>
+            <mainClass>org.triggers.Application</mainClass>
           </manifest>
         </archive>
         <descriptorRefs>
